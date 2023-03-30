@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
 name=cache_readdir_stat
-exe=~/compiled/$name
-so=~/compiled/$name.so
-mkdir -p ~/compiled
+dst=~/compiled
+exe=$dst/$name
+so=$dst/$name.so
+mkdir -p $dst
 rm "$exe" "$so" 2>/dev/null
 
 if grep '^ *int  *main(' $name.c;then
     echo "Found int main(...  Therefore compiling test program $exe ..."
-    echo "You need to remove main to make the shared lib."
-
-    gcc   -g -rdynamic -fsanitize=bounds -Wall   $name.c -o $exe -ldl
+    echo $'\e[31m You need to rename main(argc,argv)  to make the shared lib.  \nMaybe rename it to XXXmain( ) \e[0m'
+    gcc   -g -rdynamic -fsanitize=bounds -Wall   $name.c -lpthread -o $exe -ldl
     ls -l $exe
 else
-    echo "Not found int main(...  Therefore compiling $so ..."
-    gcc -Wall -fpic -shared -ldl -o $so $name.c
-#       gcc -c -Wall  -fpic $name.c;    gcc -shared -o $name.so $name.o -ldl
-
+    gcc -Wall -fpic -shared -ldl -o $so $name.c  -lpthread -ldl
+    #       gcc -c -Wall  -fpic $name.c;    gcc -shared -o $name.so $name.o -ldl
+    cp -v -u $name.sh $dst/
     ls -l $so
 fi
