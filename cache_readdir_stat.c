@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include <sys/xattr.h>
-#include "ht.c"
+#define WITH64 0
 //#include <sys/xattr.h>
 //  (global-set-key (kbd "<f2>") '(lambda() (interactive) (switch-to-buffer "cache_readdir_stat.c")))
 // See /usr/include/dirent.h
@@ -27,16 +27,19 @@
 /* Mutex */
 static pthread_mutexattr_t _mutex_attr_recursive;
 static pthread_mutex_t _mutex_dir,_mutex_ht;
+#define DO_NOTHING true
 #define SYNCHRONIZE_DIR(code)  pthread_mutex_lock(&_mutex_dir);code;pthread_mutex_unlock(&_mutex_dir)
 /***********************************************/
 
 #include "cg_log.c"
 #include "cg_utils.c"
 #include "cg_debug.c"
+#include "ht4.c"
 #define SHIFT_INODE_ROOT 40
 #define SHIFT_INODE_ZIPENTRY 43
 
 bool log_specific_path(const char *title,const char *p){
+  if (DO_NOTHING) return false;
   if (p && endsWith(p,"20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d")){
     log(ANSI_FG_MAGENTA"log_specific_path %s %s\n",title,p);
     return true;
@@ -70,7 +73,15 @@ bool isPRO123(const char *p,int l){
   }
   return false;
 }
+bool not_report_stat_error(const char *p){
+#define I(s) endsWith(p,#s)||
+  if (I(/analysis.tdf-wal) I(/analysis.tdf-journal) I(/.ciopfs) false) return true;
+#undef I
+  return false;
+}
+
 bool need_cache_dir(const char *p){
+  //if (DO_NOTHING) return false;
   const int l=my_strlen(p);
   if (!l) return false;
   if (path_contains_bruker(p,l)) return true;
@@ -79,18 +90,23 @@ bool need_cache_dir(const char *p){
   return false;
 }
 bool need_cache_fstatfs(const char *p){
+    if (DO_NOTHING) return false;
   const int l=my_strlen(p);
 
   return path_contains_bruker(p,l) || isPRO123(p,l);
 }
 bool need_cache_xstat(const char *p){  // This breaks diann
+  //    if (DO_NOTHING) return false;
   const int l=my_strlen(p);
-  return path_contains_bruker(p,l) || isPRO123(p,l);
+  if (path_contains_bruker(p,l)) return true;
+  //  if (isPRO123(p,l)) return true;
+  return false;
 }
 bool need_cache_fxstatat(const char *p){  // This breaks diann
+    if (DO_NOTHING) return false;
   const int l=my_strlen(p);
   if (!l) return false;
-  if (endsWith(p,"/.ciopfs")) return true;
+  if (not_report_stat_error(p)) return true;
   return false;
 }
 
@@ -117,9 +133,11 @@ static int (*orig_fstatfs)(int fd,struct statfs *b);
 static int (*orig___xstat)(int ver, const char *filename,struct stat *b);
 //static ssize_t (*orig_readlink)(const char *path, char *buf, size_t bufsiz);
 static int (*orig___fxstatat)(int ver, int fildes, const char *path,struct stat *buf, int flag);
-
-#define F0(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){log_mthd_orig(m);return orig_ ## m(AA);}
-#define FP(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){log_mthd_orig_p(m,path);return orig_ ## m(AA);}
+static bool _inititialized=false;
+#define INIT(orig) if (!_inititialized) _init_c(),assert(orig_ ## orig!=NULL)
+static void _init_c();
+#define F0(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){log_mthd_orig(m);INIT(m);return orig_ ## m(AA);}
+#define FP(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){log_mthd_orig_p(m,path);INIT(m);return orig_ ## m(AA);}
 
 #define AA path,mode
 FP(int,access,const char *path,int mode)
@@ -132,18 +150,24 @@ FP(int,access,const char *path,int mode)
 #define AA path,buf
 FP(int,stat,const char *path,struct stat *buf);
 FP(int,lstat,const char *path,struct stat *buf);
+#if WITH64
 FP(int,stat64,const char *path,struct stat64 *buf);
 FP(int,lstat64,const char *path,struct stat64 *buf);
+#endif
 #undef AA
 
 #define AA fd,buf
 F0(int,fstat,int fd,struct stat *buf);
+#if WITH64
 F0(int,fstat64,int fd,struct stat64 *buf);
+#endif
 #undef AA
 
 #define AA fd,path,buf,flag
 FP(int,fstatat,int fd, const char *path, struct stat *buf,int flag);
+#if WITH64
 FP(int,fstatat64,int fd, const char *path, struct stat64 *buf,int flag);
+#endif
 #undef AA
 
 #define AA ver,fildes,buf
@@ -168,14 +192,20 @@ FP(ssize_t,fgetxattr,int fd,const char *path,void *value,size_t size);
 
 #undef F0
 #undef FP
+
+
 static void *my_dlsym(const char *symbol){
   void *s=dlsym(RTLD_NEXT,symbol);
-  log_debug_now("dlsym %s %p\n",symbol,s);
+  //log_debug_now("dlsym %s %p\n",symbol,s);
   if (!s) log_error("dlsym  %s\n",dlerror());
   return s;
 }
-void init_dlsym(void) __attribute__((constructor));
-void init_dlsym(void){
+struct ht *_ht_dir,*_ht_stat, *_ht_fstatat;
+
+
+
+static void _init_c(void){
+  log_entered_function("_init_c\n");
 #define F(s) (orig_ ## s=my_dlsym(#s))
   /* --- Reading Directory    deprecated:readdir64_r,readdir_r --- */
   F(readdir);
@@ -196,13 +226,19 @@ void init_dlsym(void){
       "   See https://stackoverflow.com/questions/48994135/unable-to-get-stat-with-dlsym\n");
 
   F(stat);
-  F(stat64);
   F(fstat);
-  F(fstat64);
   F(lstat);
-  F(lstat64);
   F(fstatat);
+  #if WITH64
+  F(stat64);
+  F(fstat64);
+  F(lstat64);
   F(fstatat64);
+  #endif
+
+
+
+
 
   F(__fxstat);
   F(__xstat);
@@ -214,44 +250,33 @@ void init_dlsym(void){
   F(getxattr);
   F(fgetxattr);
 #undef F
-
-    assert(NULL!=orig___fxstatat);
-  assert(NULL!=orig___xstat);
-  assert(NULL!=orig_closedir);
-  assert(NULL!=orig_dirfd);
-  assert(NULL!=orig_fdopendir);
-  assert(NULL!=orig_fstatfs);
-  assert(NULL!=orig_opendir);
-  assert(NULL!=orig_readdir);
-  assert(NULL!=orig_readdir64);
-  assert(NULL!=orig_rewinddir);
-  assert(NULL!=orig_seekdir);
-  assert(NULL!=orig_telldir);
-
-}
-/* *** End dlsym *** */
-/***********************************************/
-struct ht *_ht_dir, *_ht_statfs, *_ht_stat, *_ht_fstatat;
-void my_init(void) __attribute__((constructor));
-void my_init(void){
   pthread_mutexattr_init(&_mutex_attr_recursive);
   pthread_mutexattr_settype(&_mutex_attr_recursive,PTHREAD_MUTEX_RECURSIVE);
   pthread_mutex_init(&_mutex_ht,&_mutex_attr_recursive);
   pthread_mutex_init(&_mutex_dir,&_mutex_attr_recursive);
-  _ht_statfs=ht_create(333);
-  _ht_dir=ht_create(333);
-  _ht_stat=ht_create(333);
-  _ht_fstatat=ht_create(333);
-  log_debug_now("my_init\n");
-
+  _ht_dir=ht_create(11);
+  _ht_stat=ht_create(11);
+  _ht_fstatat=ht_create(11);
+  _inititialized=true;
+  log_exited_function("_init_c\n");
 }
+
+
+
+
+/* *** End dlsym *** */
+/***********************************************/
+
 /***********************************************/
 /* *** Fake file directory *** */
 #define DIM_DIRENT 1024
 #define DIM_DIR 1000
 #define MAX_PATHLEN_MYDIR 255
-struct mydir{int begin,end,i;  /*  char path[MAX_PATHLEN_MYDIR+1];*/};
+struct mydir{int begin,end,i;
+  //  char path[MAX_PATHLEN_MYDIR+1]; bool tdf,tdf_bin;// DEBUG_NOW
+};
 struct mydir _store_dir[DIM_DIR];
+
 #define MYDIR() struct mydir *mydir=(struct mydir*)dir
 int _dir_l=0;
 enum data_op{GET,CREATE,RELEASE};
@@ -273,6 +298,7 @@ struct mydir *getmydir(enum data_op op,const char *path){
 }
 /***********************************************/
 /* *** Directory entry *** */
+
 struct mydirent { struct dirent e;struct dirent64 e64;};
 struct mydirent *_store_dirent[DIM_DIRENT]={0};
 int _dirent_l=0;
@@ -294,9 +320,15 @@ struct mydirent *next_dirent(void *dir){
   //log_mydir(mydir,"next_dirent");
   if (i>=mydir->end) return NULL;
   d1_d2(i);
-  return _store_dirent[d1]?_store_dirent[d1]+d2:NULL;
+  struct mydirent *d=_store_dirent[d1]?_store_dirent[d1]+d2:NULL;
+
+  //  char *n= d ? d->e.d_name:NULL;     if (endsWith(n,".tdf")) mydir->tdf=true;     if (endsWith(n,".tdf_bin")) mydir->tdf_bin=true;
+
+  return d;
 }
 struct dirent64 *readdir64(DIR *dir){
+  INIT(readdir64);
+  log_error("readdir64 \n");exit(9);
   log_mthd_invoke(readdir64);
   if (is_mydir(dir)){
     struct mydirent *e=next_dirent(dir);
@@ -306,6 +338,7 @@ struct dirent64 *readdir64(DIR *dir){
   return orig_readdir64(dir);
 }
 struct dirent *readdir(DIR *dir){
+    INIT(readdir);
   log_mthd_invoke(readdir);
   //log_entered_function("readdir fd=%d is_mydir=%s\n",dirfd(dir),yes_no(is_mydir(dir)));
   if (is_mydir(dir)){
@@ -316,9 +349,11 @@ struct dirent *readdir(DIR *dir){
   return orig_readdir(dir);
 }
 static void *opendir_common(const char *path){
+  INIT(opendir);
   struct dirent *dirent;
   assert(need_cache_dir(path));
   SYNCHRONIZE_DIR(struct mydir *mydir=getmydir(GET,path));
+  //strcpy(mydir->path,path); // DEBUG_NOW
   //log_entered_function("opendir_common mydir=%s\n",yes_no(!!mydir));
   if (!mydir){
     DIR *dir=orig_opendir(path);
@@ -344,12 +379,14 @@ static void *opendir_common(const char *path){
   return mydir;
 }
 DIR *opendir(const char *path){
+  INIT(opendir);
   log_mthd_invoke(opendir);
   if (need_cache_dir(path)) return  opendir_common(path);
   log_mthd_orig_p(opendir,path);
   return orig_opendir(path);
 }
 DIR *fdopendir(int fd){
+      INIT(fdopendir);
   log_mthd_invoke(fdopendir);
   char path[MAX_PATHLEN],buf[99];
   *path=0;
@@ -358,12 +395,20 @@ DIR *fdopendir(int fd){
   return orig_fdopendir(fd);
 }
 int closedir(DIR *dir){
+  INIT(closedir);
   log_mthd_invoke(closedir);
-  if (is_mydir(dir)) return 0;
+  if (is_mydir(dir)){
+
+    //MYDIR();if (file_ends_tdf_bin(mydir->path)){ // DEBUG_NOW
+    //if (!mydir->tdf_bin || !mydir->tdf){log_error("%s tdf_bin=%d tdf=%d \n",mydir->path,mydir->tdf_bin,mydir->tdf);exit(9);}
+
+    return 0;
+  }
   log_mthd_orig(closedir);
   return orig_closedir(dir);
 }
 void rewinddir(DIR *dir){
+  INIT(rewinddir);
   if (is_mydir(dir)){
     MYDIR();
     mydir->i=mydir->begin;
@@ -372,6 +417,7 @@ void rewinddir(DIR *dir){
   }
 }
 void seekdir(DIR *dir,long pos){
+  INIT(seekdir);
   if (is_mydir(dir)){
     MYDIR();
     mydir->i=mydir->begin+pos;
@@ -380,6 +426,7 @@ void seekdir(DIR *dir,long pos){
   }
 }
 long telldir(DIR *dir){
+    INIT(telldir);
   if (is_mydir(dir)){
     MYDIR();
     return mydir->i-mydir->begin;
@@ -388,6 +435,7 @@ long telldir(DIR *dir){
   }
 }
 int dirfd(DIR *dir){
+    INIT(dirfd);
   if (is_mydir(dir)){
     log_error("dirfd not implemented \n");
     exit(-1);
@@ -464,8 +512,7 @@ int __fxstatat(int ver, int fildes, const char *name,struct stat *statbuf, int f
     if (!s->st_ino){
       log_mthd_orig_p(__fxstatat,path);
       if (orig___fxstatat(ver,fildes,name,statbuf,flag)){
-        log_warn("__fxstatat %d %s\n",fildes,path);
-        perror(" ");
+        if (!not_report_stat_error(path)){ log_warn("__fxstatat %d %s\n",fildes,path); perror(" ");}
         s->st_ino=-1;
       }
     }
@@ -473,7 +520,7 @@ int __fxstatat(int ver, int fildes, const char *name,struct stat *statbuf, int f
     *statbuf=*s;
     return 0;
   }
-  log_debug_now("need_cache_fxstatat:false  Calling __fxstatat %d %s\n",fildes,path);
+  if (!DO_NOTHING) log_debug_now("need_cache_fxstatat:false  Calling __fxstatat %d %s\n",fildes,path);
   log_mthd_orig_p(__fxstatat,path);
   return orig___fxstatat(ver,fildes,name,statbuf,flag);
 }
@@ -488,19 +535,23 @@ int __xstat(int ver, const char *path,struct stat *statbuf){
     if (!s->st_ino){
       log_mthd_orig_p(__xstat,path);
       if (orig___xstat(ver,path,s)){
-        log_warn("__xstat %d %s\n",ver,path);
-        perror(" ");
+        if (!not_report_stat_error(path)){ log_warn("__xstat %d %s\n",ver,path);perror(" ");}
         s->st_ino=-1;
         assert(s->st_ino==-1);
       }
     }
     if (s->st_ino==-1) return -1;
     *statbuf=*s;
+    my_file_checks(path,s);
     return 0;
   }
   log_mthd_orig_p(__xstat,path);
-  return orig___xstat(ver,path,statbuf);
+
+  const int res=orig___xstat(ver,path,statbuf);
+  if (!res)     my_file_checks(path,statbuf);
+  return res;
 }
+
 /********************************************************************************/
 /* *** Testing *** */
 int list_files(const char *path){
@@ -513,7 +564,10 @@ int list_files(const char *path){
   log(" ");
   return 0;
 }
-int xxxxmain(int argc,char *argv[]){
+int xxxmain(int argc,char *argv[]){
+  {
+    //free("");
+  }
   log_debug_now("opendir  %p %p\n",opendir,orig_opendir);
   return 0;
   for(int i=1;i<argc;i++){
