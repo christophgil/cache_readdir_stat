@@ -20,6 +20,7 @@ void print_backtrace(){
 }
 
 void print_trace() {
+  fputs(ANSI_INVERSE"print_trace"ANSI_RESET"\n",stderr);
   char pid_buf[30],name_buf[512];
   sprintf(pid_buf, "%d", getpid());
   name_buf[readlink("/proc/self/exe",name_buf, 511)]=0;
@@ -34,6 +35,7 @@ void print_trace() {
   }
 }
 void my_backtrace(){ /*  compile with options -g -rdynamic */
+    fputs(ANSI_INVERSE"my_backtrace"ANSI_RESET"\n",stderr);
   void *array[10];
   size_t size=backtrace(array,10);
   backtrace_symbols_fd(array,size,STDOUT_FILENO);
@@ -42,7 +44,7 @@ void my_backtrace(){ /*  compile with options -g -rdynamic */
 void _handler(int sig) {
   printf( "ZIPsFS Error: signal %d:\n",sig);
   my_backtrace();
-  //print_trace();
+  print_trace();
   abort();
 }
 
@@ -96,7 +98,61 @@ void assert_r_ok(const char *p, struct stat *st){
 }
 
 
-void my_file_checks(const char *p, struct stat *s){
+void debug_my_file_checks(const char *p, struct stat *s){
   if(file_starts_year_ends_dot_d(p)) assert_dir(p,s);
   if (file_ends_tdf_bin(p)) assert_r_ok(p,s);
 }
+
+
+bool tdf_or_tdf_bin(const char *p) {return endsWith(p,".tdf") || endsWith(p,".tdf_bin");}
+
+
+static int _debug_tdf_maybe_sleep[0xffff+1];
+#define DEBUG_TDF_MAYBE_SLEEP(fd) _debug_tdf_maybe_sleep[(fd-FH_ZIP_MIN)&0xffff]
+int debug_tdf_maybe_sleep(const char *path, int factor){
+  if (tdf_or_tdf_bin(path)){
+    int us=((random())&0x3f)*factor;
+    //log_debug_now(" Begin sleep %d  ",us);
+    usleep(us);
+    //log_debug_now(" Done sleep ");
+    return us;
+  }
+  return 0;
+}
+
+
+
+bool report_failure(const char *mthd, int res, const char *path){
+  if (res && tdf_or_tdf_bin(path)){
+    log_debug_abort("xmp_getattr res=%d  path=%s",res,path);
+    return true;
+  }
+  return false;
+}
+
+
+enum functions{xmp_open_,xmp_access_,xmp_getattr_,xmp_read_,xmp_readdir_,mcze_,functions_l};
+#if 1
+static int functions_count[functions_l];
+static long functions_time[functions_l];
+const char *function_name(enum functions f){
+  #define C(x) f==x ## _ ? #x :
+return C(xmp_open) C(xmp_access) C(xmp_getattr) C(xmp_read) C(xmp_readdir) C(mcze) "null";
+ #undef C
+}
+static void log_count_b(enum functions f){
+  functions_time[f]=time_ms();
+  log(" >>%s%d ",function_name(f),functions_count[f]++);
+}
+static void log_count_e(enum functions f,const char *path){
+  const int ms=(int)(time_ms()-functions_time[f]);
+  if (ms>1000 && (f==xmp_getattr_ || f==xmp_access_ || f==xmp_open_ || f==xmp_readdir_)){
+    log(ANSI_FG_RED" %s"ANSI_FG_GRAY"%d"ANSI_FG_RED",'%s'%d<< "ANSI_RESET,function_name(f),ms,snull(path),--functions_count[f]);
+  }else{
+    log(" %s"ANSI_FG_GRAY"%d"ANSI_RESET",%d<< ",function_name(f),ms,--functions_count[f]);
+  }
+}
+#else
+#define  log_count_b(f) ;
+#define  log_count_e(f) ;
+#endif
