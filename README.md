@@ -1,41 +1,22 @@
 # cache_readdir_stat
 
-A closed source software we use invokes file system related library calls
-a million times.
+## Motivation
 
-This performance bug cannot be fixed.
+The shared library timsdata.dll is used to read  proprietary mass spectrometry data from mass spectrometry files.
 
-The shared library cache_readdir_stat.so will be used with
-   LD_PRELOAD=<path to cache_readdir_stat.so>
+We encountered a performance problem.
 
-It will keep the result of these  calls in a dictionary
-such that it is invoked only once per file.
+The timsdata.dll   calls functions of the file API millions of times.  For normal local file systems these
+library calls are cheap and are not a great problem. However, for our remote compressed file storage, they massively degrade performance..
 
+## Implementation
 
+Our software  provides a cache for these frequent API calls that are guaranteed to return each time the same result.
+It is implemented as a hash table.
+Only the first invocation is passed to the API.
+Subsequently, the cached result is returned.
 
- Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-  Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-   Calling fstatfs 35
-    Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-     Calling fstatfs 30
-      Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-       Calling fstatfs 33
-        Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-         Calling fstatfs 30
-          Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-           Calling fstatfs 33
-            Calling fstatfs 35
-             Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-              Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-               Calling fstatfs 30
-                Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-                 Calling fstatfs 30
-                  Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-                   Calling fstatfs 33
-                    Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-                     Calling fstatfs 35
-                      Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-                       Calling fstatfs 33
-                        Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.d
-                         Calling fstatfs 30
-                          Calling  opendir /local/wine_prefix/wine_for_diann/dosdevices/z:/home/cgille/tmp/ZIPsFS/mnt/PRO1/Data/30-0046/20230126_PRO1_KTT_002_30-0046_LisaKahl_P01_VNATSerAuxpM1evoM2Glucose10mMGlycine3mM_dia_BC7_1_12094.
+## Result
+
+With cache_readdir_stat.so, the Bruker data can be read significantly faster.
+The speed gain is great in our case where the data reside on remote compressed  file systems.
