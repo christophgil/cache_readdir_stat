@@ -12,7 +12,11 @@ if grep '^ *int  *main(' $name.c;then
     gcc -Wall -Wno-unused-function  -g -rdynamic -fsanitize=bounds    $PWD/$name.c -lpthread -o $exe -ldl
     ls -l $exe
 else
-    gcc -Wall -Wno-unused-function  -g  -fpic -shared -ldl -o $so $PWD/$name.c  -lpthread -ldl
+    if false;then
+        gcc -O0 -Wall -Wno-unused-function  -g  -fpic -shared -ldl -o $so $PWD/$name.c  -lpthread -ldl
+    else
+        clang -O0 -Wall -Wno-unused-function  -g  -fpic -shared -ldl -o $so $PWD/$name.c  -lpthread -ldl
+        fi
     #       gcc -c -Wall  -fpic $name.c;    gcc -shared -o $name.so $name.o -ldl
     cp -v -u $name.sh $dst/
     ls -l $so
