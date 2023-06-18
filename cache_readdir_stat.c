@@ -62,7 +62,7 @@ bool log_specific_path(const char *title,const char *p){
   return false;
 }
 #define log_mydir(d,...) log_msg(__VA_ARGS__),log_msg(ANSI_FG_MAGENTA" %d < %d <%d\n"ANSI_RESET,d->begin,d->i,d->end)
-#define log_mthd_orig_p(s,path) static int __count_orig=0;_log_mthd(ANSI_FG_BLUE #s ANSI_RESET,++__count_orig),log_specific_path(#s,path)
+#define log_mthd_orig_p(path) static int __count_orig=0;_log_mthd_orig(__func__,++__count_orig),log_specific_path(__func__,path)
 /***********************************************/
 /* *** Customize rules for caching *** */
 bool path_contains_bruker(const char *p,int l){
@@ -161,8 +161,8 @@ int (*orig___fxstatat)(int ver, int fildes, const char *path,struct stat *buf, i
 static bool _inititialized=false;
 #define INIT(orig) if (!_inititialized) _init_c(),assert(orig_ ## orig!=NULL)
 void _init_c();
-#define F0(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){log_mthd_orig(m);INIT(m);return orig_ ## m(AA);}
-#define FP(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){log_mthd_orig_p(m,path);INIT(m);return orig_ ## m(AA);}
+#define F0(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){ log_mthd_orig();INIT(m);return orig_ ## m(AA);}
+#define FP(ret,m,...) static ret (*orig_ ## m)(__VA_ARGS__);ret m(__VA_ARGS__){ log_mthd_orig_p(path);INIT(m);return orig_ ## m(AA);}
 
 #if HOOK_FSTAT
 #define AA path,mode
@@ -309,7 +309,7 @@ ssize_t read(int fd, void *buf, size_t count){
 #if HOOK_OPEN
 int openat(int dirfd, const char *path, int flags,...){
   INIT(openat);
-  log_mthd_invoke(openat);
+  log_mthd_invoke();
   const int fd=orig_openat(dirfd,path,flags);
   if (tdf_or_tdf_bin(path)) { log_debug_now("openat %d  ",fd); print_path_for_fd(fd);}
   if (fd<0) log_warn("failed openat %s\n",path);
@@ -319,7 +319,7 @@ int open(const char *path,int flags, ...){
   if (endsWith(path,".d")) return -1;
   INIT(open);
   //log_entered_function("open %s\n",path);
-  log_mthd_invoke(open);
+  log_mthd_invoke();
   const int fd=orig_open(path,flags);
   if (tdf_or_tdf_bin(path)){ log_debug_now("open %s  %d ",path,fd);   print_path_for_fd(fd);  }
   if (fd<0)  log_warn("failed open %s\n",path);
@@ -394,14 +394,14 @@ struct dirent *next_dirent(void *dir){
 }
 struct dirent *readdir(DIR *dir){
   INIT(readdir);
-  log_mthd_invoke(readdir);
+  log_mthd_invoke();
   //log_entered_function("readdir fd=%d is_mydir=%s\n",dirfd(dir),yes_no(is_mydir(dir)));
   if (is_mydir(dir)){
     struct dirent *e=next_dirent(dir);
     //log_msg(ANSI_YELLOW""ANSI_FG_BLACK" %s "ANSI_RESET,e->d_name);
     return e;
   }
-  log_mthd_orig(readdir);
+  log_mthd_orig();
   return orig_readdir(dir);
 }
 void *opendir_common(const char *path){
@@ -429,27 +429,27 @@ void *opendir_common(const char *path){
 }
 DIR *opendir(const char *path){
   INIT(opendir);
-  log_mthd_invoke(opendir);
+  log_mthd_invoke();
   if (need_cache_dir(path)) return  opendir_common(path);
-  log_mthd_orig_p(opendir,path);
+  log_mthd_orig_p(path);
   return orig_opendir(path);
 }
 DIR *fdopendir(int fd){
   INIT(fdopendir);
-  log_mthd_invoke(fdopendir);
+  log_mthd_invoke();
   char path[MAX_PATHLEN];
   *path=0;
   if (fd>2 && !path_for_fd("fdopendir",path,fd) && need_cache_dir(path)) return opendir_common(path);
-  log_mthd_orig_p(fdopendir,path);
+  log_mthd_orig_p(path);
   return orig_fdopendir(fd);
 }
 int closedir(DIR *dir){
   INIT(closedir);
-  log_mthd_invoke(closedir);
+  log_mthd_invoke();
   if (is_mydir(dir)){
     return 0;
   }
-  log_mthd_orig(closedir);
+  log_mthd_orig();
   return orig_closedir(dir);
 }
 #if HOOK_REWINDDIR
@@ -496,7 +496,7 @@ int dirfd(DIR *dir){
 /*
   ssize_t readlink(const char *path, char *buf, size_t bufsiz){
   const ssize_t n=orig_readlink(path,buf,bufsiz);
-  log_mthd_orig(readlink);
+  log_mthd_orig();
   log_msg("path='");
   if (n>0) write(2,path,MIN(bufsiz,n));
   log_msg("'\n");
@@ -525,12 +525,12 @@ X_FOR_PATH(statfs);
 /********************************************************************************/
 #if HOOK_FSTAT
 int fstatfs(int fd,struct statfs *buf){
-  log_mthd_invoke(fstatfs);
+  log_mthd_invoke();
   char path[MAX_PATHLEN]; *path=0;
   if (fd>2 && !path_for_fd("fstatfs",path,fd) && need_cache_fstatfs(path)){
     struct statfs *s=statfs_for_path(path,&_ht_fstatat);
     if (!s->f_type){
-      log_mthd_orig_p(fstatfs,path);
+      log_mthd_orig_p(path);
       if (orig_fstatfs(fd,s)){
         log_warn("fstatfs %d\n",fd);
         perror(" ");
@@ -541,13 +541,13 @@ int fstatfs(int fd,struct statfs *buf){
     *buf=*s;
     return 0;
   }
-  log_mthd_orig_p(fstatfs,path);
+  log_mthd_orig_p(path);
   return orig_fstatfs(fd,buf);
 }
 /********************************************************************************/
 int __fxstatat(int ver, int fildes, const char *name,struct stat *statbuf, int flag){
   //return orig___fxstatat(ver,fildes,name,statbuf,flag);
-  log_mthd_invoke(__xstat);
+  log_mthd_invoke();
   char path[MAX_PATHLEN];
   path_for_fd("__fxstatat",path,fildes);
   int len=my_strlen(path);
@@ -557,7 +557,7 @@ int __fxstatat(int ver, int fildes, const char *name,struct stat *statbuf, int f
     struct stat *s=stat_for_path(path,&_ht_fstatat);
     if (!s->st_ino){
       //log_entered_function("\n__fxstatat %d %d %s  path=%s ",ver,fildes,name,path);
-      log_mthd_orig_p(__fxstatat,path);
+      log_mthd_orig_p(path);
       if (orig___fxstatat(ver,fildes,name,statbuf,flag)){
         if (!not_report_stat_error(path)){ log_warn("__fxstatat %d %s\n",fildes,path); perror(" ");}
         s->st_ino=-1;
@@ -567,7 +567,7 @@ int __fxstatat(int ver, int fildes, const char *name,struct stat *statbuf, int f
     *statbuf=*s;
     return 0;
   }
-  log_mthd_orig_p(__fxstatat,path);
+  log_mthd_orig_p(path);
   return orig___fxstatat(ver,fildes,name,statbuf,flag);
 }
 /********************************************************************************/
@@ -575,11 +575,11 @@ int __fxstatat(int ver, int fildes, const char *name,struct stat *statbuf, int f
 int __xstat(int ver, const char *path,struct stat *statbuf){
   //    return orig___xstat(ver,path,statbuf);
   //log_debug_now("__xstat ver=%d %s ",ver,path);
-  log_mthd_invoke(__xstat);
+  log_mthd_invoke();
   if (need_cache_xstat(path)){
     struct stat *s=stat_for_path(path,&_ht_stat);
     if (!s->st_ino){
-      log_mthd_orig_p(__xstat,path);
+      log_mthd_orig_p(path);
       if (orig___xstat(ver,path,s)){
         if (!not_report_stat_error(path)){ log_warn("__xstat %d %s\n",ver,path);perror(" ");}
         s->st_ino=-1;
@@ -588,12 +588,12 @@ int __xstat(int ver, const char *path,struct stat *statbuf){
     }
     if (s->st_ino==-1) return -1;
     *statbuf=*s;
-    debug_my_file_checks(path,s);
+    //debug_my_file_checks(path,s);
     return 0;
   }
-  log_mthd_orig_p(__xstat,path);
+  log_mthd_orig_p(path);
   const int res=orig___xstat(ver,path,statbuf);
-  if (!res) debug_my_file_checks(path,statbuf);
+  //if (!res) debug_my_file_checks(path,statbuf);
   return res;
 }
 #endif

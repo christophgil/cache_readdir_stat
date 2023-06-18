@@ -15,7 +15,13 @@ else
     if false;then
         gcc -O0 -Wall -Wno-unused-function  -g  -fpic -shared -ldl -o $so $PWD/$name.c  -lpthread -ldl
     else
-        clang -O0 -Wall -Wno-unused-function  -g  -fpic -shared -ldl -o $so $PWD/$name.c  -lpthread -ldl
+        as=''
+        if false;then
+        as="-fsanitize=address -fno-omit-frame-pointer"
+        asan=/usr/lib/llvm-10/lib/clang/10.0.0/lib/linux/libclang_rt.asan-x86_64.so
+        [[ ! -s $asan ]] && as=''
+        fi
+        clang -O0 -Wall -Wno-unused-function  -g $as -rdynamic  -fpic -shared -ldl -o $so $PWD/$name.c  -lpthread -ldl
         fi
     #       gcc -c -Wall  -fpic $name.c;    gcc -shared -o $name.so $name.o -ldl
     cp -v -u $name.sh $dst/

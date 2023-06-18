@@ -110,12 +110,16 @@ static void log_cache(const char *format,...){
 static int isPowerOfTwo(unsigned int n){
   return n && (n&(n-1))==0;
 }
-static void _log_mthd(char *s,int count){
-  if (!_logIsSilent && isPowerOfTwo(count)) log_msg(" %s=%d ",s,count);
+static void _log_mthd_invoke(const char *s,int count){
+  if (!_logIsSilent && isPowerOfTwo(count)) log_msg(ANSI_FG_GRAY" %s=%d "ANSI_RESET,s,count);
 }
-#define log_mthd_invoke(s) static int __count=0;_log_mthd(ANSI_FG_GRAY #s ANSI_RESET,++__count)
-#define log_mthd_orig(s) static int __count_orig=0;_log_mthd(ANSI_FG_BLUE #s ANSI_RESET,++__count_orig)
-#define log_abort(...)   fputs(ANSI_RED"\n AAAAAAAAAAAAAAAAAAA cg_log.c Abort",LOG_STREAM),log_msg(__VA_ARGS__),log_msg("ANSI_RESET\n"),abort();
+static void _log_mthd_orig(const char *s,int count){
+  if (!_logIsSilent && isPowerOfTwo(count)) log_msg(ANSI_FG_BLUE" %s=%d "ANSI_RESET,s,count);
+}
+
+#define log_mthd_invoke() static int __count=0;_log_mthd_invoke(__func__,++__count)
+#define log_mthd_orig() static int __count_orig=0;_log_mthd_orig(__func__,++__count_orig)
+#define log_abort(...)   log_msg(ANSI_RED"\n cg_log.c Abort %s() ",__func__),log_msg(__VA_ARGS__),log_msg("ANSI_RESET\n"),abort();
 #if 0
 #define log_debug_abort(...)   log_abort(__VA_ARGS__)
 #else
@@ -129,13 +133,14 @@ static void _log_mthd(char *s,int count){
 
 
 
-// #define log_to_file(chanel,path,format,...) { if (_log_to_file_and_stream(chanel,path,format,__VA_ARGS__)) printf(format,__VA_ARGS__);}
+// #define log_to_file(chanel,path,format,...){ if (_log_to_file_and_stream(chanel,path,format,__VA_ARGS__)) printf(format,__VA_ARGS__);}
 
 // (buffer-file-name)
 static int _count_mmap,_count_munmap;
 static void log_mem(FILE *f){
   fprintf(f,"pid=%d  uordblks=%'d  mmap/munmap=%'d/%'d\n",getpid(),mallinfo().uordblks,_count_mmap,_count_munmap);
 }
+
 
 ///////////
 /// log ///
@@ -148,7 +153,13 @@ static long currentTimeMillis(){
   return tv.tv_sec*1000+tv.tv_usec/1000;
 }
 
-static bool  _killOnError=false;
+static int millisSinceStart(){
+  if (!_startTimeMillis)_startTimeMillis=currentTimeMillis();
+  return (int)(currentTimeMillis()-_startTimeMillis);
+}
+
+
+static bool _killOnError=false;
 static void killOnError_exit(){
   if (_killOnError){
     log_msg("Thread %lx\nTime=%'ld\n  killOnError_exit\n",pthread_self(),_startTimeMillis-currentTimeMillis());
@@ -194,13 +205,12 @@ static void warning(const unsigned int channel,const char* path,const char *form
       (channel&WARN_FLAG_ONCE_PER_PATH) && path &&  ht_get(NULL,path) ||
 #endif
       false) toFile=false;
-  log_debug_now("warning toFile=%d\n",toFile);
   _warning_count[i]++;
   written+=strlen(format)+strlen(p);
-  char errx[222];*errx=0;
+      char errx[222];*errx=0;
+  pthread_mutex_lock(&mutex);
   if ((channel&WARN_FLAG_ERRNO)){
     const int errn=errno;
-    pthread_mutex_lock(&mutex);
     if (errn) strerror_r(errn,errx,sizeof(errx));
   }
   for(int j=2;--j>=0;){
@@ -237,11 +247,11 @@ static void warning(const unsigned int channel,const char* path,const char *form
 int main(int argc, char *argv[]){
   log_debug_now("argc= %d \n",argc);
   if (0){
-  warning(0,argv[1],"%s","");
-  open("afafsdfasd",O_WRONLY);
-  printf("aaaaaaaaaaa \n");
-  _warning_channel_name[1]="Hello";
-  warning(1|WARN_FLAG_ERRNO,"path","error ");
+    warning(0,argv[1],"%s","");
+    open("afafsdfasd",O_WRONLY);
+    printf("aaaaaaaaaaa \n");
+    _warning_channel_name[1]="Hello";
+    warning(1|WARN_FLAG_ERRNO,"path","error ");
   }
 }
 #endif

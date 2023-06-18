@@ -30,13 +30,13 @@ static char *path_of_this_executable(){
   }
   return _p;
 }
-static void print_trace_using_debugger() {
+static void print_trace_using_debugger(){
   fputs(ANSI_INVERSE"print_trace_using_debugger"ANSI_RESET"\n",stderr);
   char pid_buf[30];
   sprintf(pid_buf, "%d", getpid());
   prctl(PR_SET_PTRACER,PR_SET_PTRACER_ANY, 0,0, 0);
   const int child_pid=fork();
-  if (!child_pid) {
+  if (!child_pid){
 #ifdef __clang__
     execl("/usr/bin/lldb", "lldb", "-p", pid_buf, "-b", "-o","bt","-o","quit" ,NULL);
 #else
@@ -48,7 +48,7 @@ static void print_trace_using_debugger() {
   }
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-static void addr2line(void *p, void *messageP) {
+static void addr2line(void *p, void *messageP){
   char cmd[999];
   sprintf(cmd,"/usr/bin/addr2line -p %p -e %s",p,path_of_this_executable());
   system(cmd);
@@ -58,8 +58,8 @@ static void bt_sighandler(int sig, siginfo_t *psi, void *ctxarg){
   void *trace[16];
   mcontext_t *ctxP=&((ucontext_t *) ctxarg)->uc_mcontext;
   trace[1]=(void *)ctxP->gregs[REG_RIP];
-  if (sig==SIGSEGV) printf("Got signal %d, faulty address is %p, from %p\n",sig, (void*)ctxP->gregs[REG_RSP],trace[1]);
-  else printf("Got signal %d\n",sig);
+ printf(ANSI_RED"Got signal %d  pid=%d\n"ANSI_RESET,sig,getpid());
+  if (sig==SIGSEGV) printf(ANSI_RED"Faulty address is %p, from %p\n"ANSI_RESET,(void*)ctxP->gregs[REG_RSP],trace[1]);
   const int trace_size=backtrace(trace,16);
   /* overwrite sigaction with caller's address */
   char **messages=backtrace_symbols(trace,trace_size);
@@ -76,6 +76,7 @@ static void bt_sighandler(int sig, siginfo_t *psi, void *ctxarg){
 }
 void init_handler() __attribute((constructor));
 void init_handler(){
+  return; // DEBUG_NOW
   log_debug_now("init_handler\n");
   struct sigaction sa;
   sa.sa_sigaction=bt_sighandler;
@@ -129,11 +130,11 @@ static void assert_r_ok(const char *p, struct stat *st){
     print_trace_using_debugger();
   }
 }
-static void debug_my_file_checks(const char *p, struct stat *s){
-  if(file_starts_year_ends_dot_d(p)) assert_dir(p,s);
-  if (file_ends_tdf_bin(p)) assert_r_ok(p,s);
-}
-bool tdf_or_tdf_bin(const char *p) {return endsWith(p,".tdf") || endsWith(p,".tdf_bin");}
+
+
+
+
+bool tdf_or_tdf_bin(const char *p){return endsWith(p,".tdf") || endsWith(p,".tdf_bin");}
 
 
 
